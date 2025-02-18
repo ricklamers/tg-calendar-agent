@@ -119,7 +119,8 @@ function loadAuthCache() {
 
 loadAuthCache();
 
-function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[]): string {
+// Update buildAccountsAndCalendarsMessage to optionally filter out disabled calendars
+function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId?: number, showDisabled: boolean = false): string {
   if (accounts.length === 0) return "No accounts connected.\n";
   let message = "";
   accounts.forEach(account => {
@@ -129,7 +130,22 @@ function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[]): string {
       message += "- No calendars found.\n";
     } else {
       account.calendars.forEach(cal => {
-        message += `- ${cal.summary} (ID: ${cal.id})\n`;
+        let disabled = false;
+        if (chatId !== undefined) {
+          const userDisabled = disabledCalendars.get(chatId);
+          if (userDisabled && userDisabled[account.accountId] && userDisabled[account.accountId].has(cal.id)) {
+            disabled = true;
+          }
+        }
+        if (!showDisabled && disabled) {
+          // Skip disabled calendars if not showing them
+          return;
+        }
+        if (showDisabled && disabled) {
+          message += `- ${cal.summary} (ID: ${cal.id}) (Disabled)\n`;
+        } else {
+          message += `- ${cal.summary} (ID: ${cal.id})\n`;
+        }
       });
     }
   });
@@ -180,7 +196,7 @@ function extractJSON(response: string): string {
 async function parseEventDescription(userText: string, chatId: number): Promise<{ events: CalendarEvent[], jsonProposal: string }> {
   const currentDate = moment().format('YYYY-MM-DD');
   const accounts = oauthAccounts.get(chatId) || [];
-  const accountInfo = buildAccountsAndCalendarsMessage(accounts);
+  const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false);
   const pending = pendingEvents.get(chatId);
   const previousProposalText = pending && pending.previousJSONProposal ? `Previous JSON proposal: ${pending.previousJSONProposal}\n` : "";
   const prompt = `
@@ -452,14 +468,14 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // New command to list authenticated calendars
+  // Update /calendars command to show disabled calendars
   if (text.startsWith('/calendars')) {
     const accounts = oauthAccounts.get(chatId);
     if (!accounts || accounts.length === 0) {
       bot.sendMessage(chatId, "No authenticated calendars found. Please use /auth to connect your Google Calendar.");
       return;
     }
-    const accountDetails = buildAccountsAndCalendarsMessage(accounts);
+    const accountDetails = buildAccountsAndCalendarsMessage(accounts, chatId, true);
     const reply = "Authenticated Calendars and Accounts:\n" + accountDetails;
     bot.sendMessage(chatId, reply);
     return;
