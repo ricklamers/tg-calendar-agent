@@ -79,12 +79,19 @@ const AUTH_CACHE_PATH = path.join(cacheDir, 'authCache.json');
 function saveAuthCache() {
   let cacheData: any = {};
   for (const [chatId, accounts] of oauthAccounts.entries()) {
-    cacheData[chatId] = accounts.map(account => ({
-      accountId: account.accountId,
-      email: account.email,
-      calendars: account.calendars,
-      tokens: account.oauth2Client.credentials
-    }));
+    cacheData[chatId] = {
+      accounts: accounts.map(account => ({
+        accountId: account.accountId,
+        email: account.email,
+        calendars: account.calendars,
+        tokens: account.oauth2Client.credentials
+      })),
+      disabledCalendars: disabledCalendars.has(chatId)
+        ? Object.fromEntries(
+            Object.entries(disabledCalendars.get(chatId)!).map(([acctId, set]) => [acctId, Array.from(set)])
+          )
+        : {}
+    };
   }
   try {
     fs.writeFileSync(AUTH_CACHE_PATH, JSON.stringify(cacheData, null, 2));
@@ -98,7 +105,8 @@ function loadAuthCache() {
     try {
       let data = JSON.parse(fs.readFileSync(AUTH_CACHE_PATH, 'utf-8'));
       for (let chatId in data) {
-        let accountsList = data[chatId];
+        let chatData = data[chatId];
+        let accountsList = chatData.accounts;
         let oauthAccountsList = accountsList.map((accountData: any) => {
           let oauth2Client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
           oauth2Client.setCredentials(accountData.tokens);
@@ -110,6 +118,13 @@ function loadAuthCache() {
           };
         });
         oauthAccounts.set(parseInt(chatId, 10), oauthAccountsList);
+        if (chatData.disabledCalendars) {
+          const disabledForChat: { [accountId: number]: Set<string> } = {};
+          for (const acctId in chatData.disabledCalendars) {
+            disabledForChat[parseInt(acctId)] = new Set(chatData.disabledCalendars[acctId]);
+          }
+          disabledCalendars.set(parseInt(chatId, 10), disabledForChat);
+        }
       }
     } catch (error) {
       console.error("Failed to load auth cache:", error);
