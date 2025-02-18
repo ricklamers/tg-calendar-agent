@@ -245,7 +245,7 @@ async function parseEventDescription(userText: string, chatId: number): Promise<
   const currentDate = moment().format('YYYY-MM-DD');
   const currentDay = moment().format('dddd');
   const accounts = oauthAccounts.get(chatId) || [];
-  const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false, false);
+  const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false, true);
   const pending = pendingEvents.get(chatId);
   const previousProposalText = pending && pending.previousJSONProposal ? `Previous JSON proposal: ${pending.previousJSONProposal}\n` : "";
   const prompt = `
