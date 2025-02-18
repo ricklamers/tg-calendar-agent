@@ -243,13 +243,14 @@ function extractJSON(response: string): string {
 // Updated parseEventDescription function signature and prompt
 async function parseEventDescription(userText: string, chatId: number): Promise<{ events: CalendarEvent[], jsonProposal: string }> {
   const currentDate = moment().format('YYYY-MM-DD');
+  const currentDay = moment().format('dddd');
   const accounts = oauthAccounts.get(chatId) || [];
   const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false, false);
   const pending = pendingEvents.get(chatId);
   const previousProposalText = pending && pending.previousJSONProposal ? `Previous JSON proposal: ${pending.previousJSONProposal}\n` : "";
   const prompt = `
 You are an assistant that extracts calendar event details from natural language.
-Current Date: ${currentDate}
+Current Date: ${currentDate} (${currentDay})
 Available accounts and calendars:
 ${accountInfo}
 Extract an array of JSON objects, where each object has the following fields:
@@ -261,9 +262,9 @@ Extract an array of JSON objects, where each object has the following fields:
   "accountId": number,
   "calendar": string    // if not provided, default to "primary"
 }
-If the time zone is not specified, assume the default timezone ${DEFAULT_TIMEZONE}.
+If the time zone is not specified, assume the default timezone: ${DEFAULT_TIMEZONE}.
 
-If the user gives a time zone, use the ISO notation where the times the user specifies are used (e.g. 2pm) in the ISO format, and the ISO timezone suffix aligns with what the user specifies. E.g. if they say "NYC time" then the ISO timezone suffix is '-5:00' (depending on whether date/Daylight Savings Time is in effect).
+If the user indicates time zone (can be an informal remark like 'in NYC time') then use the ISO notation where the times the user specifies are used directly (e.g. 2pm) in the ISO format, and the ISO timezone suffix aligns with what the user specifies. E.g. if they say "NYC time" then the ISO timezone suffix is '-5:00' (depending on whether date/Daylight Savings Time is in effect). In that case, the default timezone is not used.
 
 ${previousProposalText}Description: ${userText}
 `;
