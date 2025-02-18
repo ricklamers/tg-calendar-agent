@@ -264,6 +264,8 @@ Extract an array of JSON objects, where each object has the following fields:
 }
 If the time zone is not specified, assume the default timezone: ${DEFAULT_TIMEZONE}.
 
+When a user proposes relative dates (e.g. next week on Wednesday), make sure your date math is correct (if today is Tuesday 18th, then next week on Wednesday is the 26th, 7 days would be Tuesday 25th + 1 for Wednesday 26th).
+
 If the user indicates time zone (can be an informal remark like 'in NYC time') then use the ISO notation where the times the user specifies are used directly (e.g. 2pm) in the ISO format, and the ISO timezone suffix aligns with what the user specifies. E.g. if they say "NYC time" then the ISO timezone suffix is '-5:00' (depending on whether date/Daylight Savings Time is in effect). In that case, the default timezone is not used.
 
 ${previousProposalText}Description: ${userText}
