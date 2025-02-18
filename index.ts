@@ -69,7 +69,8 @@ const oauthAccounts = new Map<number, OAuthAccount[]>();
 const pendingOAuth = new Map<string, PendingOAuth>();
 
 // Disk-based caching for authenticated clients
-const AUTH_CACHE_PATH = path.join(__dirname, 'authCache.json');
+const cacheDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
+const AUTH_CACHE_PATH = path.join(cacheDir, 'authCache.json');
 
 function saveAuthCache() {
   let cacheData: any = {};
