@@ -68,6 +68,10 @@ const oauthAccounts = new Map<number, OAuthAccount[]>();
 // Temporary storage for pending OAuth authentications
 const pendingOAuth = new Map<string, PendingOAuth>();
 
+// New global maps for handling calendar enable/disable state
+const disabledCalendars = new Map<number, { [accountId: number]: Set<string> }>();
+const pendingCalendarChange = new Map<number, { action: 'disable'|'enable' }>();
+
 // Disk-based caching for authenticated clients
 const cacheDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
 const AUTH_CACHE_PATH = path.join(cacheDir, 'authCache.json');
@@ -236,7 +240,12 @@ async function addEventToCalendar(chatId: number, eventData: {
     bot.sendMessage(chatId, "No authenticated Google account found. Use /auth to authenticate.");
     return;
   }
-  const calendarId = eventData.calendar || "primary";
+  const calendarIdToUse = eventData.calendar || "primary";
+  const userDisabled = disabledCalendars.get(chatId) || {};
+  if (userDisabled[oauthAccount.accountId]?.has(calendarIdToUse)) {
+    bot.sendMessage(chatId, `Calendar ${calendarIdToUse} for Account ${oauthAccount.accountId} is currently disabled. Skipping event: ${eventData.title}`);
+    return;
+  }
   const calendarApi = google.calendar({ version: 'v3', auth: oauthAccount.oauth2Client });
   const event = {
     summary: eventData.title,
@@ -250,10 +259,10 @@ async function addEventToCalendar(chatId: number, eventData: {
   };
   try {
     await calendarApi.events.insert({
-      calendarId,
+      calendarId: calendarIdToUse,
       requestBody: event,
     });
-    bot.sendMessage(chatId, `Event added to calendar (${calendarId}) for Account ${oauthAccount.accountId}: ${eventData.title}`);
+    bot.sendMessage(chatId, `Event added to calendar (${calendarIdToUse}) for Account ${oauthAccount.accountId}: ${eventData.title}`);
   } catch (error) {
     console.error("Error adding event:", error);
     bot.sendMessage(chatId, "There was an error adding the event. Please try again.");
@@ -265,6 +274,100 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   if (!text) return;
+
+  // Handle pending calendar change follow-up for /disable and /enable commands
+  if (pendingCalendarChange.has(chatId) && !text.startsWith('/')) {
+    const pendingChange = pendingCalendarChange.get(chatId)!;
+    const regex = /(?:account\s*)?(\d+)\s*(?:calendar\s*)?(\S+)/i;
+    const match = text.match(regex);
+    if (!match) {
+      bot.sendMessage(chatId, "Invalid input. Please specify account and calendar in the format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
+      pendingCalendarChange.delete(chatId);
+      return;
+    }
+    const accountId = parseInt(match[1]);
+    const calendarId = match[2];
+    if (pendingChange.action === 'disable') {
+      let userDisabled = disabledCalendars.get(chatId) || {};
+      if (!userDisabled[accountId]) {
+        userDisabled[accountId] = new Set();
+      }
+      userDisabled[accountId].add(calendarId);
+      disabledCalendars.set(chatId, userDisabled);
+      bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been disabled.`);
+    } else if (pendingChange.action === 'enable') {
+      let userDisabled = disabledCalendars.get(chatId) || {};
+      if (userDisabled[accountId] && userDisabled[accountId].has(calendarId)) {
+        userDisabled[accountId].delete(calendarId);
+        bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been enabled.`);
+      } else {
+        bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} is not disabled.`);
+      }
+      disabledCalendars.set(chatId, userDisabled);
+    }
+    pendingCalendarChange.delete(chatId);
+    return;
+  }
+
+  // Insert /disable and /enable command handlers before the unrecognized command handler
+  if (text.startsWith('/disable')) {
+    const args = text.slice('/disable'.length).trim();
+    if (args.length > 0) {
+      const parts = args.split(' ').filter(x => x.trim().length > 0);
+      if (parts.length >= 2) {
+        const accountId = parseInt(parts[0]);
+        const calendarId = parts[1];
+        if (isNaN(accountId)) {
+          bot.sendMessage(chatId, "Invalid account id provided.");
+        } else {
+          let userDisabled = disabledCalendars.get(chatId) || {};
+          if (!userDisabled[accountId]) {
+            userDisabled[accountId] = new Set();
+          }
+          userDisabled[accountId].add(calendarId);
+          disabledCalendars.set(chatId, userDisabled);
+          bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been disabled.`);
+        }
+      } else {
+        pendingCalendarChange.set(chatId, { action: 'disable' });
+        bot.sendMessage(chatId, "Please specify which account and calendar to disable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
+      }
+    } else {
+      pendingCalendarChange.set(chatId, { action: 'disable' });
+      bot.sendMessage(chatId, "Please specify which account and calendar to disable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
+    }
+    return;
+  }
+
+  if (text.startsWith('/enable')) {
+    const args = text.slice('/enable'.length).trim();
+    if (args.length > 0) {
+      const parts = args.split(' ').filter(x => x.trim().length > 0);
+      if (parts.length >= 2) {
+        const accountId = parseInt(parts[0]);
+        const calendarId = parts[1];
+        if (isNaN(accountId)) {
+          bot.sendMessage(chatId, "Invalid account id provided.");
+        } else {
+          let userDisabled = disabledCalendars.get(chatId) || {};
+          if (userDisabled[accountId] && userDisabled[accountId].has(calendarId)) {
+            userDisabled[accountId].delete(calendarId);
+            bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been enabled.`);
+          } else {
+            bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} is not disabled.`);
+          }
+          disabledCalendars.set(chatId, userDisabled);
+        }
+      } else {
+        pendingCalendarChange.set(chatId, { action: 'enable' });
+        bot.sendMessage(chatId, "Please provide both the account id and calendar id after /enable, e.g. '/enable 2 primary'.");
+      }
+    } else {
+      pendingCalendarChange.set(chatId, { action: 'enable' });
+      bot.sendMessage(chatId, "Please specify which account and calendar to enable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
+    }
+    return;
+  }
 
   // Start command
   if (text.startsWith('/start')) {
@@ -419,12 +522,43 @@ app.get('/oauth2callback', async (req: Request, res: Response): Promise<void> =>
     calendars.forEach((cal, index) => {
       calendarMsg += `${index + 1}. ${cal.summary} (ID: ${cal.id})\n`;
     });
-    res.send("Authentication successful! You can now return to Telegram.");
-    bot.sendMessage(chatId, calendarMsg);
+    const successHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Successful</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="bg-white shadow-md rounded px-8 py-6">
+    <h1 class="text-2xl font-bold mb-4 text-green-600">Authentication Successful!</h1>
+    <p class="mb-2">You have successfully authenticated with Google Calendar.</p>
+    <p class="text-gray-700">You can now return to Telegram.</p>
+  </div>
+</body>
+</html>`;
+    res.send(successHtml);
   } catch (error) {
     console.error("Error during OAuth callback:", error);
-    res.send("Error during authentication.");
-    bot.sendMessage(chatId, "There was an error during Google Calendar authentication.");
+    const errorHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Error</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-red-100 flex items-center justify-center min-h-screen">
+  <div class="bg-white shadow-md rounded px-8 py-6">
+    <h1 class="text-2xl font-bold mb-4 text-red-600">Authentication Error</h1>
+    <p class="mb-2">There was an error during Google Calendar authentication.</p>
+    <p class="text-gray-700">Please try again.</p>
+  </div>
+</body>
+</html>`;
+    res.send(errorHtml);
+    bot.sendMessage(chatId, "There was an error during Google Calendar authentication. Please try again.");
   }
 });
 
