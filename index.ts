@@ -527,6 +527,7 @@ bot.on('message', async (msg) => {
     const reply = formatEventsReply(events, "If these look good, type /confirm to add the events, or /edit to modify.");
     bot.sendMessage(chatId, reply);
   } catch (error) {
+    console.error(error);
     bot.sendMessage(chatId, "Error parsing event description. Please ensure your description is clear and try again.");
   }
 });
