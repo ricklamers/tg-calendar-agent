@@ -522,8 +522,9 @@ bot.on('message', async (msg) => {
 
   // Otherwise, treat the message as a new event description
   try {
+    pendingEvents.delete(chatId);
     const { events, jsonProposal } = await parseEventDescription(text, chatId);
-    pendingEvents.set(chatId, { events, originalText: text, previousJSONProposal: jsonProposal });
+    pendingEvents.set(chatId, { events, originalText: text, previousJSONProposal: jsonProposal, editHistory: "" });
     const reply = formatEventsReply(events, "If these look good, type /confirm to add the events, or /edit to modify.");
     bot.sendMessage(chatId, reply);
   } catch (error) {
