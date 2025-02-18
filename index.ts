@@ -106,7 +106,7 @@ function loadAuthCache() {
       let data = JSON.parse(fs.readFileSync(AUTH_CACHE_PATH, 'utf-8'));
       for (let chatId in data) {
         let chatData = data[chatId];
-        let accountsList = chatData.accounts;
+        let accountsList = chatData.accounts || [];
         let oauthAccountsList = accountsList.map((accountData: any) => {
           let oauth2Client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
           oauth2Client.setCredentials(accountData.tokens);
@@ -118,13 +118,14 @@ function loadAuthCache() {
           };
         });
         oauthAccounts.set(parseInt(chatId, 10), oauthAccountsList);
+        const disabledForChat: { [accountId: number]: Set<string> } = {};
         if (chatData.disabledCalendars) {
-          const disabledForChat: { [accountId: number]: Set<string> } = {};
           for (const acctId in chatData.disabledCalendars) {
-            disabledForChat[parseInt(acctId)] = new Set(chatData.disabledCalendars[acctId]);
+            const arr = chatData.disabledCalendars[acctId];
+            disabledForChat[parseInt(acctId)] = Array.isArray(arr) ? new Set(arr) : new Set();
           }
-          disabledCalendars.set(parseInt(chatId, 10), disabledForChat);
         }
+        disabledCalendars.set(parseInt(chatId, 10), disabledForChat);
       }
     } catch (error) {
       console.error("Failed to load auth cache:", error);
@@ -371,6 +372,7 @@ bot.on('message', async (msg) => {
       disabledCalendars.set(chatId, userDisabled);
     }
     pendingCalendarChange.delete(chatId);
+    saveAuthCache();
     return;
   }
 
@@ -397,6 +399,7 @@ bot.on('message', async (msg) => {
           userDisabled[accountId].add(realCalendarId);
           disabledCalendars.set(chatId, userDisabled);
           bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
+          saveAuthCache();
         }
       } else {
         pendingCalendarChange.set(chatId, { action: 'disable' });
@@ -432,6 +435,7 @@ bot.on('message', async (msg) => {
             bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
           }
           disabledCalendars.set(chatId, userDisabled);
+          saveAuthCache();
         }
       } else {
         pendingCalendarChange.set(chatId, { action: 'enable' });
