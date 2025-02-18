@@ -7,7 +7,6 @@ import moment from 'moment-timezone';
 import fs from 'fs';
 import path from 'path';
 
-// Load environment variables (use a package like dotenv if necessary)
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -20,17 +19,13 @@ if (!TELEGRAM_BOT_TOKEN || !GROQ_API_KEY || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_
   process.exit(1);
 }
 
-// Initialize Telegram Bot (using polling for simplicity)
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
-// Setup Express server for handling OAuth callbacks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize Groq SDK for interacting with the LLM API
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-// New interfaces for multiple events
 interface CalendarEvent {
   title: string;
   start_time: string; // ISO formatted time
@@ -47,13 +42,11 @@ interface PendingEvents {
   editHistory?: string;
 }
 
-// Also update pendingEvents declaration
 const pendingEvents = new Map<number, PendingEvents>();
 
-// New interfaces for handling multiple OAuth accounts
 interface OAuthAccount {
   accountId: number;
-  email?: string;  // new field for user's email
+  email?: string;
   oauth2Client: OAuth2Client;
   calendars: { id: string; summary: string }[];
 }
@@ -134,7 +127,6 @@ function loadAuthCache() {
 
 loadAuthCache();
 
-// New helper function to resolve a real calendar ID given an account ID and calendar identifier.
 function resolveCalendarId(chatId: number, accountId: number, calendarIdentifier: string, isStrict: boolean = true): { success: boolean, realCalendarId: string, errorMsg?: string } {
   const accounts = oauthAccounts.get(chatId);
   if (!accounts) {
@@ -165,13 +157,6 @@ function resolveCalendarId(chatId: number, accountId: number, calendarIdentifier
   return { success: true, realCalendarId };
 }
 
-// Update buildAccountsAndCalendarsMessage
-// Old signature:
-// function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId?: number, showDisabled: boolean = false): string {
-//   ... existing code ...
-// }
-
-// New version with numbering and an extra flag 'enabledOnly'
 function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId: number, showDisabled: boolean, enabledOnly: boolean = false): string {
   if (accounts.length === 0) return "No accounts connected.\n";
   let message = "";
@@ -215,7 +200,6 @@ function formatEventsReply(events: CalendarEvent[], confirmMessage: string = "If
   return reply;
 }
 
-// Helper function to fetch calendars for an OAuth2 client
 async function fetchCalendars(oauth2Client: OAuth2Client): Promise<{ id: string; summary: string }[]> {
   const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client });
   const calendarList = await calendarClient.calendarList.list();
@@ -225,7 +209,6 @@ async function fetchCalendars(oauth2Client: OAuth2Client): Promise<{ id: string;
   })) || [];
 }
 
-// New extractJSON supporting JSON arrays
 function extractJSON(response: string): string {
   const firstBracket = response.indexOf('[');
   const lastBracket = response.lastIndexOf(']');
@@ -240,7 +223,6 @@ function extractJSON(response: string): string {
   return response.substring(firstBrace, lastBrace + 1);
 }
 
-// Updated parseEventDescription function signature and prompt
 async function parseEventDescription(userText: string, chatId: number): Promise<{ events: CalendarEvent[], jsonProposal: string }> {
   const currentDate = moment().format('YYYY-MM-DD');
   const currentDay = moment().format('dddd');
@@ -275,6 +257,8 @@ ${previousProposalText}Description: ${userText}
       messages: [
         { role: "user", content: prompt }
       ],
+      temperature: 0.6,
+      top_p: 0.95,
       model: "deepseek-r1-distill-llama-70b-specdec",
     });
     const rawResponse = chatCompletion.choices[0]?.message?.content || '';
@@ -287,7 +271,6 @@ ${previousProposalText}Description: ${userText}
   }
 }
 
-// Function to add event to Google Calendar using the selected account
 async function addEventToCalendar(chatId: number, eventData: {
   title: string;
   start_time: string;
@@ -506,7 +489,6 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Update /calendars command to show disabled calendars
   if (text.startsWith('/calendars')) {
     const accounts = oauthAccounts.get(chatId);
     if (!accounts || accounts.length === 0) {
