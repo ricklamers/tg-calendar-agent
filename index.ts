@@ -263,6 +263,8 @@ Extract an array of JSON objects, where each object has the following fields:
 }
 If the time zone is not specified, assume the default timezone ${DEFAULT_TIMEZONE}.
 
+If the user gives a time zone, use the ISO notation where the times the user specifies are used (e.g. 2pm) in the ISO format, and the ISO timezone suffix aligns with what the user specifies. E.g. if they say "NYC time" then the ISO timezone suffix is '-5:00' (depending on whether date/Daylight Savings Time is in effect).
+
 ${previousProposalText}Description: ${userText}
 `;
   try {
