@@ -260,7 +260,7 @@ Extract an array of JSON objects, where each object has the following fields:
   "end_time": string (ISO format),
   "description": string,
   "accountId": number,
-  "calendar": string    // if not provided, default to "primary"
+  "calendar": string    // if it cannot be inffered from the user query, default to "primary", other than "primary" your are ONLY allowed to choose calendar ID values listed under Available accounts and calendars
 }
 If the time zone is not specified, assume the default timezone: ${DEFAULT_TIMEZONE}.
 
