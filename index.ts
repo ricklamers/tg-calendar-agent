@@ -431,6 +431,7 @@ bot.on('message', async (msg) => {
     // Updated scopes to include userinfo.email for fetching the user's email
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
+      prompt: 'consent',
       scope: [
         'https://www.googleapis.com/auth/calendar',
         'https://www.googleapis.com/auth/userinfo.email'
@@ -491,6 +492,15 @@ bot.on('message', async (msg) => {
     } catch (error) {
       bot.sendMessage(chatId, "Error parsing updated event description. Please try again.");
     }
+    return;
+  }
+
+  // Clear command to remove all authenticated accounts
+  if (text.startsWith('/clear')) {
+    oauthAccounts.delete(chatId);
+    disabledCalendars.delete(chatId);
+    saveAuthCache();
+    bot.sendMessage(chatId, "All authenticated accounts have been cleared. Use /auth to authenticate again.");
     return;
   }
 
