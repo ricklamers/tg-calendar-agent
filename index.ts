@@ -119,8 +119,45 @@ function loadAuthCache() {
 
 loadAuthCache();
 
-// Update buildAccountsAndCalendarsMessage to optionally filter out disabled calendars
-function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId?: number, showDisabled: boolean = false): string {
+// New helper function to resolve a real calendar ID given an account ID and calendar identifier.
+function resolveCalendarId(chatId: number, accountId: number, calendarIdentifier: string, isStrict: boolean = true): { success: boolean, realCalendarId: string, errorMsg?: string } {
+  const accounts = oauthAccounts.get(chatId);
+  if (!accounts) {
+    if (isStrict) {
+      return { success: false, realCalendarId: '', errorMsg: "No authenticated accounts found." };
+    } else {
+      return { success: true, realCalendarId: calendarIdentifier };
+    }
+  }
+  const account = accounts.find(acc => acc.accountId === accountId);
+  if (!account) {
+    if (isStrict) {
+      return { success: false, realCalendarId: '', errorMsg: `Account ${accountId} not found.` };
+    } else {
+      return { success: true, realCalendarId: calendarIdentifier };
+    }
+  }
+  let realCalendarId = calendarIdentifier;
+  const calendarIndex = parseInt(calendarIdentifier);
+  if (!isNaN(calendarIndex)) {
+    if (isStrict && (calendarIndex < 1 || calendarIndex > account.calendars.length)) {
+      return { success: false, realCalendarId: '', errorMsg: `Invalid calendar index. Please provide a number between 1 and ${account.calendars.length}.` };
+    }
+    if (!isStrict || (calendarIndex >= 1 && calendarIndex <= account.calendars.length)) {
+      realCalendarId = account.calendars[calendarIndex - 1].id;
+    }
+  }
+  return { success: true, realCalendarId };
+}
+
+// Update buildAccountsAndCalendarsMessage
+// Old signature:
+// function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId?: number, showDisabled: boolean = false): string {
+//   ... existing code ...
+// }
+
+// New version with numbering and an extra flag 'enabledOnly'
+function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId: number, showDisabled: boolean, enabledOnly: boolean = false): string {
   if (accounts.length === 0) return "No accounts connected.\n";
   let message = "";
   accounts.forEach(account => {
@@ -129,23 +166,19 @@ function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[], chatId?: num
     if (!account.calendars || account.calendars.length === 0) {
       message += "- No calendars found.\n";
     } else {
-      account.calendars.forEach(cal => {
+      account.calendars.forEach((cal, index) => {
         let disabled = false;
-        if (chatId !== undefined) {
-          const userDisabled = disabledCalendars.get(chatId);
-          if (userDisabled && userDisabled[account.accountId] && userDisabled[account.accountId].has(cal.id)) {
-            disabled = true;
-          }
+        const userDisabled = disabledCalendars.get(chatId);
+        if (userDisabled && userDisabled[account.accountId] && userDisabled[account.accountId].has(cal.id)) {
+          disabled = true;
         }
-        if (!showDisabled && disabled) {
-          // Skip disabled calendars if not showing them
-          return;
-        }
+        // If only enabled calendars should be shown, skip disabled ones
+        if (enabledOnly && disabled) return;
+        let line = `- ${index + 1}. ${cal.summary} (ID: ${cal.id})`;
         if (showDisabled && disabled) {
-          message += `- ${cal.summary} (ID: ${cal.id}) (Disabled)\n`;
-        } else {
-          message += `- ${cal.summary} (ID: ${cal.id})\n`;
+          line += " (Disabled)";
         }
+        message += line + "\n";
       });
     }
   });
@@ -196,7 +229,7 @@ function extractJSON(response: string): string {
 async function parseEventDescription(userText: string, chatId: number): Promise<{ events: CalendarEvent[], jsonProposal: string }> {
   const currentDate = moment().format('YYYY-MM-DD');
   const accounts = oauthAccounts.get(chatId) || [];
-  const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false);
+  const accountInfo = buildAccountsAndCalendarsMessage(accounts, chatId, false, false);
   const pending = pendingEvents.get(chatId);
   const previousProposalText = pending && pending.previousJSONProposal ? `Previous JSON proposal: ${pending.previousJSONProposal}\n` : "";
   const prompt = `
@@ -302,22 +335,23 @@ bot.on('message', async (msg) => {
       return;
     }
     const accountId = parseInt(match[1]);
-    const calendarId = match[2];
+    const result = resolveCalendarId(chatId, accountId, match[2], false);
+    const realCalendarId = result.realCalendarId;
     if (pendingChange.action === 'disable') {
       let userDisabled = disabledCalendars.get(chatId) || {};
       if (!userDisabled[accountId]) {
         userDisabled[accountId] = new Set();
       }
-      userDisabled[accountId].add(calendarId);
+      userDisabled[accountId].add(realCalendarId);
       disabledCalendars.set(chatId, userDisabled);
-      bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been disabled.`);
+      bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
     } else if (pendingChange.action === 'enable') {
       let userDisabled = disabledCalendars.get(chatId) || {};
-      if (userDisabled[accountId] && userDisabled[accountId].has(calendarId)) {
-        userDisabled[accountId].delete(calendarId);
-        bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been enabled.`);
+      if (userDisabled[accountId] && userDisabled[accountId].has(realCalendarId)) {
+        userDisabled[accountId].delete(realCalendarId);
+        bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been enabled.`);
       } else {
-        bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} is not disabled.`);
+        bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
       }
       disabledCalendars.set(chatId, userDisabled);
     }
@@ -332,17 +366,22 @@ bot.on('message', async (msg) => {
       const parts = args.split(' ').filter(x => x.trim().length > 0);
       if (parts.length >= 2) {
         const accountId = parseInt(parts[0]);
-        const calendarId = parts[1];
         if (isNaN(accountId)) {
           bot.sendMessage(chatId, "Invalid account id provided.");
         } else {
+          const result = resolveCalendarId(chatId, accountId, parts[1], true);
+          if (!result.success) {
+            bot.sendMessage(chatId, result.errorMsg!);
+            return;
+          }
+          const realCalendarId = result.realCalendarId;
           let userDisabled = disabledCalendars.get(chatId) || {};
           if (!userDisabled[accountId]) {
             userDisabled[accountId] = new Set();
           }
-          userDisabled[accountId].add(calendarId);
+          userDisabled[accountId].add(realCalendarId);
           disabledCalendars.set(chatId, userDisabled);
-          bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been disabled.`);
+          bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
         }
       } else {
         pendingCalendarChange.set(chatId, { action: 'disable' });
@@ -361,16 +400,21 @@ bot.on('message', async (msg) => {
       const parts = args.split(' ').filter(x => x.trim().length > 0);
       if (parts.length >= 2) {
         const accountId = parseInt(parts[0]);
-        const calendarId = parts[1];
         if (isNaN(accountId)) {
           bot.sendMessage(chatId, "Invalid account id provided.");
         } else {
+          const result = resolveCalendarId(chatId, accountId, parts[1], true);
+          if (!result.success) {
+            bot.sendMessage(chatId, result.errorMsg!);
+            return;
+          }
+          const realCalendarId = result.realCalendarId;
           let userDisabled = disabledCalendars.get(chatId) || {};
-          if (userDisabled[accountId] && userDisabled[accountId].has(calendarId)) {
-            userDisabled[accountId].delete(calendarId);
-            bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} has been enabled.`);
+          if (userDisabled[accountId] && userDisabled[accountId].has(realCalendarId)) {
+            userDisabled[accountId].delete(realCalendarId);
+            bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been enabled.`);
           } else {
-            bot.sendMessage(chatId, `Calendar ${calendarId} for account ${accountId} is not disabled.`);
+            bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
           }
           disabledCalendars.set(chatId, userDisabled);
         }
@@ -475,9 +519,16 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, "No authenticated calendars found. Please use /auth to connect your Google Calendar.");
       return;
     }
-    const accountDetails = buildAccountsAndCalendarsMessage(accounts, chatId, true);
-    const reply = "Authenticated Calendars and Accounts:\n" + accountDetails;
-    bot.sendMessage(chatId, reply);
+    const args = text.slice('/calendars'.length).trim();
+    if (args === "enabled") {
+      const accountDetails = buildAccountsAndCalendarsMessage(accounts, chatId, true, true);
+      const reply = "Enabled Calendars:\n" + accountDetails;
+      bot.sendMessage(chatId, reply);
+    } else {
+      const accountDetails = buildAccountsAndCalendarsMessage(accounts, chatId, true, false);
+      const reply = "Authenticated Calendars and Accounts:\n" + accountDetails;
+      bot.sendMessage(chatId, reply);
+    }
     return;
   }
 
