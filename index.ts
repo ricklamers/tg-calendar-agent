@@ -70,7 +70,6 @@ const pendingOAuth = new Map<string, PendingOAuth>();
 
 // New global maps for handling calendar enable/disable state
 const disabledCalendars = new Map<number, { [accountId: number]: Set<string> }>();
-const pendingCalendarChange = new Map<number, { action: 'disable'|'enable' }>();
 
 // Disk-based caching for authenticated clients
 const cacheDir = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname;
@@ -340,111 +339,72 @@ bot.on('message', async (msg) => {
   const text = msg.text;
   if (!text) return;
 
-  // Handle pending calendar change follow-up for /disable and /enable commands
-  if (pendingCalendarChange.has(chatId) && !text.startsWith('/')) {
-    const pendingChange = pendingCalendarChange.get(chatId)!;
-    const regex = /(?:account\s*)?(\d+)\s*(?:calendar\s*)?(\S+)/i;
-    const match = text.match(regex);
-    if (!match) {
-      bot.sendMessage(chatId, "Invalid input. Please specify account and calendar in the format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
-      pendingCalendarChange.delete(chatId);
+  // /disable command handler
+  if (text.startsWith('/disable')) {
+    const args = text.slice('/disable'.length).trim();
+    if (args.length === 0) {
+      bot.sendMessage(chatId, "Invalid format. Please use: /disable <account_id> <calendar_id>");
       return;
     }
-    const accountId = parseInt(match[1]);
-    const result = resolveCalendarId(chatId, accountId, match[2], false);
-    const realCalendarId = result.realCalendarId;
-    if (pendingChange.action === 'disable') {
-      let userDisabled = disabledCalendars.get(chatId) || {};
-      if (!userDisabled[accountId]) {
-        userDisabled[accountId] = new Set();
-      }
-      userDisabled[accountId].add(realCalendarId);
-      disabledCalendars.set(chatId, userDisabled);
-      bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
-    } else if (pendingChange.action === 'enable') {
-      let userDisabled = disabledCalendars.get(chatId) || {};
-      if (userDisabled[accountId] && userDisabled[accountId].has(realCalendarId)) {
-        userDisabled[accountId].delete(realCalendarId);
-        bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been enabled.`);
-      } else {
-        bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
-      }
-      disabledCalendars.set(chatId, userDisabled);
+    const parts = args.split(' ').filter(x => x.trim().length > 0);
+    if (parts.length < 2) {
+      bot.sendMessage(chatId, "Invalid format. Please use: /disable <account_id> <calendar_id>");
+      return;
     }
-    pendingCalendarChange.delete(chatId);
+    const accountId = parseInt(parts[0]);
+    if (isNaN(accountId)) {
+      bot.sendMessage(chatId, "Invalid account id provided.");
+      return;
+    }
+    const result = resolveCalendarId(chatId, accountId, parts[1], true);
+    if (!result.success) {
+      bot.sendMessage(chatId, result.errorMsg || "Error resolving calendar id");
+      return;
+    }
+    const realCalendarId = result.realCalendarId;
+    let userDisabled = disabledCalendars.get(chatId) || {};
+    if (!userDisabled[accountId]) {
+      userDisabled[accountId] = new Set();
+    }
+    userDisabled[accountId].add(realCalendarId);
+    disabledCalendars.set(chatId, userDisabled);
+    bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
     saveAuthCache();
     return;
   }
 
-  // Insert /disable and /enable command handlers before the unrecognized command handler
-  if (text.startsWith('/disable')) {
-    const args = text.slice('/disable'.length).trim();
-    if (args.length > 0) {
-      const parts = args.split(' ').filter(x => x.trim().length > 0);
-      if (parts.length >= 2) {
-        const accountId = parseInt(parts[0]);
-        if (isNaN(accountId)) {
-          bot.sendMessage(chatId, "Invalid account id provided.");
-        } else {
-          const result = resolveCalendarId(chatId, accountId, parts[1], true);
-          if (!result.success) {
-            bot.sendMessage(chatId, result.errorMsg!);
-            return;
-          }
-          const realCalendarId = result.realCalendarId;
-          let userDisabled = disabledCalendars.get(chatId) || {};
-          if (!userDisabled[accountId]) {
-            userDisabled[accountId] = new Set();
-          }
-          userDisabled[accountId].add(realCalendarId);
-          disabledCalendars.set(chatId, userDisabled);
-          bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been disabled.`);
-          saveAuthCache();
-        }
-      } else {
-        pendingCalendarChange.set(chatId, { action: 'disable' });
-        bot.sendMessage(chatId, "Please specify which account and calendar to disable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
-      }
-    } else {
-      pendingCalendarChange.set(chatId, { action: 'disable' });
-      bot.sendMessage(chatId, "Please specify which account and calendar to disable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
-    }
-    return;
-  }
-
+  // /enable command handler
   if (text.startsWith('/enable')) {
     const args = text.slice('/enable'.length).trim();
-    if (args.length > 0) {
-      const parts = args.split(' ').filter(x => x.trim().length > 0);
-      if (parts.length >= 2) {
-        const accountId = parseInt(parts[0]);
-        if (isNaN(accountId)) {
-          bot.sendMessage(chatId, "Invalid account id provided.");
-        } else {
-          const result = resolveCalendarId(chatId, accountId, parts[1], true);
-          if (!result.success) {
-            bot.sendMessage(chatId, result.errorMsg!);
-            return;
-          }
-          const realCalendarId = result.realCalendarId;
-          let userDisabled = disabledCalendars.get(chatId) || {};
-          if (userDisabled[accountId] && userDisabled[accountId].has(realCalendarId)) {
-            userDisabled[accountId].delete(realCalendarId);
-            bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been enabled.`);
-          } else {
-            bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
-          }
-          disabledCalendars.set(chatId, userDisabled);
-          saveAuthCache();
-        }
-      } else {
-        pendingCalendarChange.set(chatId, { action: 'enable' });
-        bot.sendMessage(chatId, "Please provide both the account id and calendar id after /enable, e.g. '/enable 2 primary'.");
-      }
-    } else {
-      pendingCalendarChange.set(chatId, { action: 'enable' });
-      bot.sendMessage(chatId, "Please specify which account and calendar to enable. Format: 'account <account_id> calendar <calendar_id>' or '<account_id> <calendar_id>'.");
+    if (args.length === 0) {
+      bot.sendMessage(chatId, "Invalid format. Please use: /enable <account_id> <calendar_id>");
+      return;
     }
+    const parts = args.split(' ').filter(x => x.trim().length > 0);
+    if (parts.length < 2) {
+      bot.sendMessage(chatId, "Invalid format. Please use: /enable <account_id> <calendar_id>");
+      return;
+    }
+    const accountId = parseInt(parts[0]);
+    if (isNaN(accountId)) {
+      bot.sendMessage(chatId, "Invalid account id provided.");
+      return;
+    }
+    const result = resolveCalendarId(chatId, accountId, parts[1], true);
+    if (!result.success) {
+      bot.sendMessage(chatId, result.errorMsg || "Error resolving calendar id");
+      return;
+    }
+    const realCalendarId = result.realCalendarId;
+    let userDisabled = disabledCalendars.get(chatId) || {};
+    if (userDisabled[accountId] && userDisabled[accountId].has(realCalendarId)) {
+      userDisabled[accountId].delete(realCalendarId);
+      bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} has been enabled.`);
+    } else {
+      bot.sendMessage(chatId, `Calendar ${realCalendarId} for account ${accountId} is not disabled.`);
+    }
+    disabledCalendars.set(chatId, userDisabled);
+    saveAuthCache();
     return;
   }
 
