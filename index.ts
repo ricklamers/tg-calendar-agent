@@ -114,6 +114,38 @@ function loadAuthCache() {
 
 loadAuthCache();
 
+function buildAccountsAndCalendarsMessage(accounts: OAuthAccount[]): string {
+  if (accounts.length === 0) return "No accounts connected.\n";
+  let message = "";
+  accounts.forEach(account => {
+    const accountLabel = account.email ? `Account ${account.accountId} (${account.email})` : `Account ${account.accountId}`;
+    message += `${accountLabel}:\n`;
+    if (!account.calendars || account.calendars.length === 0) {
+      message += "- No calendars found.\n";
+    } else {
+      account.calendars.forEach(cal => {
+        message += `- ${cal.summary} (ID: ${cal.id})\n`;
+      });
+    }
+  });
+  return message;
+}
+
+function formatEventsReply(events: CalendarEvent[], confirmMessage: string = "If these look good, type /confirm to add the events."): string {
+  let reply = "Proposed events:";
+  events.forEach((evt, index) => {
+    reply += `\n\nEvent ${index + 1}:` +
+             `\nTitle: ${evt.title}` +
+             `\nStart: ${evt.start_time}` +
+             `\nEnd: ${evt.end_time}` +
+             `\nDescription: ${evt.description}` +
+             `\nAccount: ${evt.accountId}` +
+             `\nCalendar: ${evt.calendar || 'primary'}`;
+  });
+  reply += `\n\n` + confirmMessage;
+  return reply;
+}
+
 // Helper function to fetch calendars for an OAuth2 client
 async function fetchCalendars(oauth2Client: OAuth2Client): Promise<{ id: string; summary: string }[]> {
   const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client });
@@ -142,20 +174,8 @@ function extractJSON(response: string): string {
 // Updated parseEventDescription function signature and prompt
 async function parseEventDescription(userText: string, chatId: number): Promise<{ events: CalendarEvent[], jsonProposal: string }> {
   const currentDate = moment().format('YYYY-MM-DD');
-  let accountInfo = "";
-  const accounts = oauthAccounts.get(chatId);
-  if (accounts && accounts.length > 0) {
-    accounts.forEach(account => {
-      const accountLabel = account.email ? `Account ${account.accountId} (${account.email})` : `Account ${account.accountId}`;
-      accountInfo += `${accountLabel}:
-`;
-      account.calendars.forEach(cal => {
-        accountInfo += `- ${cal.summary} (ID: ${cal.id})\n`;
-      });
-    });
-  } else {
-    accountInfo = "No accounts connected.\n";
-  }
+  const accounts = oauthAccounts.get(chatId) || [];
+  const accountInfo = buildAccountsAndCalendarsMessage(accounts);
   const pending = pendingEvents.get(chatId);
   const previousProposalText = pending && pending.previousJSONProposal ? `Previous JSON proposal: ${pending.previousJSONProposal}\n` : "";
   const prompt = `
@@ -303,14 +323,13 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, "No pending events available to edit. Please provide an event description first.");
       return;
     }
-    const originalDescription = pending.originalText; // keep the initial description unchanged
+    const originalDescription = pending.originalText;
     const previousEdits = pending.editHistory || "";
     const newEditHistory = previousEdits ? previousEdits + "\n" + latestEdit : latestEdit;
     const combinedDescription = `Original description: ${originalDescription}\nUser requested changes:\nLatest edit: ${latestEdit}\n` +
                                 (previousEdits ? `Previously requested changes: ${previousEdits}\n` : "");
     try {
       const { events, jsonProposal } = await parseEventDescription(combinedDescription, chatId);
-      // Concatenate previous JSON proposals if they exist
       let newPreviousJSONProposal = jsonProposal;
       if (pending.previousJSONProposal) {
         newPreviousJSONProposal = pending.previousJSONProposal + "\n" + jsonProposal;
@@ -321,17 +340,7 @@ bot.on('message', async (msg) => {
         previousJSONProposal: newPreviousJSONProposal,
         editHistory: newEditHistory
       });
-      let reply = `Proposed events:`;
-      events.forEach((evt, index) => {
-        reply += `\n\nEvent ${index + 1}:` +
-                 `\nTitle: ${evt.title}` +
-                 `\nStart: ${evt.start_time}` +
-                 `\nEnd: ${evt.end_time}` +
-                 `\nDescription: ${evt.description}` +
-                 `\nAccount: ${evt.accountId}` +
-                 `\nCalendar: ${evt.calendar || 'primary'}`;
-      });
-      reply += `\n\nIf these look good, type /confirm to add the events.`;
+      const reply = formatEventsReply(events, "If these look good, type /confirm to add the events.");
       bot.sendMessage(chatId, reply);
     } catch (error) {
       bot.sendMessage(chatId, "Error parsing updated event description. Please try again.");
@@ -346,17 +355,8 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, "No authenticated calendars found. Please use /auth to connect your Google Calendar.");
       return;
     }
-    let reply = "Authenticated Calendars and Accounts:\n";
-    accounts.forEach(account => {
-      reply += `\nAccount ${account.accountId}` + (account.email ? ` (${account.email})` : "") + ":\n";
-      if (!account.calendars || account.calendars.length === 0) {
-        reply += "  No calendars found.\n";
-      } else {
-        account.calendars.forEach(cal => {
-          reply += `  - ${cal.summary} (ID: ${cal.id})\n`;
-        });
-      }
-    });
+    const accountDetails = buildAccountsAndCalendarsMessage(accounts);
+    const reply = "Authenticated Calendars and Accounts:\n" + accountDetails;
     bot.sendMessage(chatId, reply);
     return;
   }
@@ -371,17 +371,7 @@ bot.on('message', async (msg) => {
   try {
     const { events, jsonProposal } = await parseEventDescription(text, chatId);
     pendingEvents.set(chatId, { events, originalText: text, previousJSONProposal: jsonProposal });
-    let reply = `Proposed events:`;
-    events.forEach((evt, index) => {
-      reply += `\n\nEvent ${index + 1}:` +
-               `\nTitle: ${evt.title}` +
-               `\nStart: ${evt.start_time}` +
-               `\nEnd: ${evt.end_time}` +
-               `\nDescription: ${evt.description}` +
-               `\nAccount: ${evt.accountId}` +
-               `\nCalendar: ${evt.calendar || 'primary'}`;
-    });
-    reply += `\n\nIf these look good, type /confirm to add the events, or /edit to modify.`;
+    const reply = formatEventsReply(events, "If these look good, type /confirm to add the events, or /edit to modify.");
     bot.sendMessage(chatId, reply);
   } catch (error) {
     bot.sendMessage(chatId, "Error parsing event description. Please ensure your description is clear and try again.");
