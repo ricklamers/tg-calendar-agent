@@ -253,15 +253,37 @@ If the user indicates time zone (can be an informal remark like 'in NYC time') t
 ${previousProposalText}Description: ${userText}
 `;
   try {
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.6,
-      top_p: 0.95,
-      model: "deepseek-r1-distill-llama-70b-specdec",
-    });
-    const rawResponse = chatCompletion.choices[0]?.message?.content || '';
+    const modelPriorityOrder = [
+      "deepseek-r1-distill-llama-70b-specdec",
+      "deepseek-r1-distill-llama-70b",
+      "deepseek-r1-distill-qwen-32b",
+      "qwen-2.5-32b",
+      "llama-3.3-70b-versatile"
+    ];
+    let rawResponse = "";
+    let chatCompletion;
+    let lastError;
+    for (const model of modelPriorityOrder) {
+      try {
+        chatCompletion = await groq.chat.completions.create({
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.6,
+          top_p: 0.95,
+          model
+        });
+        rawResponse = chatCompletion.choices[0]?.message?.content || "";
+        if (!rawResponse) {
+          throw new Error(`Model ${model} returned empty response`);
+        }
+        break;
+      } catch (error) {
+        console.error(`Error with model ${model}:`, error);
+        lastError = error;
+      }
+    }
+    if (!rawResponse) {
+      throw lastError || new Error("All models failed to generate a response.");
+    }
     const jsonString = extractJSON(rawResponse);
     const events = JSON.parse(jsonString);
     return { events, jsonProposal: jsonString };
