@@ -2,6 +2,8 @@
 
 This project is a Telegram bot that helps you manage your Google Calendar events using natural language. The bot leverages OAuth2 for secure authentication with Google, and it extracts event details from simple text messages. With it, you can create, edit, and confirm events directly through Telegram commands.
 
+![Screenshot 2025-02-18 at 7 50 17 PM](https://github.com/user-attachments/assets/c8929c80-a78a-4437-84b5-e6455d6910e2)
+
 ## Features
 
 - Authenticate with your Google Calendar via OAuth2.
