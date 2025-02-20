@@ -451,17 +451,14 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Confirm command to add events
+  // /confirm command to add events
   if (text.startsWith('/confirm')) {
     const pending = pendingEvents.get(chatId);
     if (!pending) {
       bot.sendMessage(chatId, "No pending events. Send an event description first.");
       return;
     }
-    for (const eventData of pending.events) {
-      await addEventToCalendar(chatId, eventData);
-    }
-    pendingEvents.delete(chatId);
+    bot.sendMessage(chatId, "Please confirm your events:", { reply_markup: { inline_keyboard: [[ { text: "Confirm", callback_data: "confirm" }, { text: "Edit", callback_data: "edit" } ]] } });
     return;
   }
 
@@ -495,7 +492,7 @@ bot.on('message', async (msg) => {
         editHistory: newEditHistory
       });
       const reply = formatEventsReply(events, "If these look good, type /confirm to add the events.");
-      bot.sendMessage(chatId, reply);
+      bot.sendMessage(chatId, reply, { reply_markup: { inline_keyboard: [[ { text: "Confirm", callback_data: "confirm" }, { text: "Edit", callback_data: "edit" } ]] } });
     } catch (error) {
       bot.sendMessage(chatId, "Error parsing updated event description. Please try again.");
     }
@@ -547,6 +544,29 @@ bot.on('message', async (msg) => {
     console.error(error);
     bot.sendMessage(chatId, "Error parsing event description. Please ensure your description is clear and try again.");
   }
+});
+
+// Add callback_query handler to process inline button actions
+bot.on('callback_query', async (callbackQuery) => {
+  const action = callbackQuery.data;
+  const msg = callbackQuery.message;
+  if (!msg) return;
+  const chatId = msg.chat.id;
+  if (action === 'confirm') {
+    const pending = pendingEvents.get(chatId);
+    if (!pending) {
+      bot.sendMessage(chatId, "No pending events to confirm.");
+      return;
+    }
+    for (const eventData of pending.events) {
+      await addEventToCalendar(chatId, eventData);
+    }
+    pendingEvents.delete(chatId);
+    bot.sendMessage(chatId, "Events confirmed and added to your calendar.");
+  } else if (action === 'edit') {
+    bot.sendMessage(chatId, "Please send your updated event description using /edit command.");
+  }
+  bot.answerCallbackQuery(callbackQuery.id);
 });
 
 // Express route to handle OAuth2 callback
