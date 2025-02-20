@@ -539,7 +539,7 @@ bot.on('message', async (msg) => {
     const { events, jsonProposal } = await parseEventDescription(text, chatId);
     pendingEvents.set(chatId, { events, originalText: text, previousJSONProposal: jsonProposal, editHistory: "" });
     const reply = formatEventsReply(events, "If these look good, type /confirm to add the events, or /edit to modify.");
-    bot.sendMessage(chatId, reply);
+    bot.sendMessage(chatId, reply, { reply_markup: { inline_keyboard: [[ { text: "Confirm", callback_data: "confirm" }, { text: "Edit", callback_data: "edit" } ]] } });
   } catch (error) {
     console.error(error);
     bot.sendMessage(chatId, "Error parsing event description. Please ensure your description is clear and try again.");
